@@ -1,0 +1,10 @@
+{
+  "name": "dancing-chrome",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/background/service-worker.js && node --check src/offscreen/audio-engine.js && node --check src/popup/popup.js"
+  }
+}

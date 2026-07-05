@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Dancing Chrome",
+  "description": "음악의 박자와 크기에 맞춰 Chrome 창을 춤추게 합니다.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "desktopCapture",
+    "offscreen",
+    "storage",
+    "tabCapture",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Dancing Chrome"
+  }
+}
