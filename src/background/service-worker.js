@@ -7,7 +7,8 @@ let state = {
   enabled: false,
   status: "idle",
   source: null,
-  error: null
+  error: null,
+  level: 0
 };
 let settings = normalizeSettings(DEFAULT_SETTINGS);
 let creatingOffscreen = null;
@@ -42,11 +43,14 @@ async function handleMessage(message) {
       await chrome.storage.local.set({ settings });
       return { ok: true, settings };
 
+    case Message.REQUEST_DESKTOP_CAPTURE:
+      return requestDesktopCapture(message);
+
     case Message.START_CAPTURE:
       return start(message);
 
     case Message.CAPTURE_STARTED:
-      state = { enabled: true, status: "running", source: message.source, error: null };
+      state = { enabled: true, status: "running", source: message.source, error: null, level: 0 };
       await setBadge(true);
       return { ok: true };
 
@@ -83,7 +87,7 @@ async function start(message) {
   }
 
   engine.start(browserWindow, settings);
-  state = { enabled: true, status: "starting", source: message.source, error: null };
+  state = { enabled: true, status: "starting", source: message.source, error: null, level: 0 };
   await ensureOffscreenDocument();
   await chrome.runtime.sendMessage({
     target: "offscreen",
@@ -95,6 +99,45 @@ async function start(message) {
   });
 
   return { ok: true, state };
+}
+
+async function requestDesktopCapture(message) {
+  state = { enabled: false, status: "selecting", source: "desktop", error: null, level: 0 };
+  const selection = await chooseDesktopMedia();
+
+  if (!selection.streamId) {
+    state = { enabled: false, status: "idle", source: null, error: null, level: 0 };
+    return { ok: false, cancelled: true, error: "오디오 공유 선택이 취소되었습니다." };
+  }
+  if (!selection.canRequestAudioTrack) {
+    state = {
+      enabled: false,
+      status: "error",
+      source: null,
+      error: "선택한 대상의 오디오가 공유되지 않았습니다.",
+      level: 0
+    };
+    return { ok: false, error: state.error };
+  }
+
+  return start({
+    ...message,
+    type: Message.START_CAPTURE,
+    streamId: selection.streamId,
+    source: "desktop"
+  });
+}
+
+function chooseDesktopMedia() {
+  return new Promise((resolve) => {
+    chrome.desktopCapture.chooseDesktopMedia(
+      ["screen", "tab", "window", "audio"],
+      (streamId, options = {}) => resolve({
+        streamId,
+        canRequestAudioTrack: Boolean(options.canRequestAudioTrack)
+      })
+    );
+  });
 }
 
 async function stop({ restore = false, notifyOffscreen = false, error = null } = {}) {
@@ -114,13 +157,15 @@ async function stop({ restore = false, notifyOffscreen = false, error = null } =
     enabled: false,
     status: error ? "error" : "idle",
     source: null,
-    error: error || null
+    error: error || null,
+    level: 0
   };
   await setBadge(false);
 }
 
 async function moveWindow(frame) {
   if (!state.enabled || moving) return;
+  state.level = Math.max(Number(frame?.energy) || 0, Number(frame?.bass) || 0);
   const operation = engine.step(frame);
   if (!operation) return;
 

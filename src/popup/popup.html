@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dancing Chrome</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="hero">
+        <div class="brand-mark" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div>
+          <p class="eyebrow">RHYTHM WINDOW DRIVER</p>
+          <h1>DANCING<br>CHROME</h1>
+        </div>
+        <div id="statusBadge" class="status-badge" data-state="idle">
+          <span></span><b>OFF</b>
+        </div>
+      </header>
+
+      <section class="power-zone">
+        <button id="powerButton" class="power-button" type="button">
+          <span class="power-icon" aria-hidden="true"></span>
+          <strong>START</strong>
+          <small>모든 탭 사운드</small>
+        </button>
+        <div class="meter" aria-label="현재 감지 음량">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <p id="statusText" class="status-text">준비 완료 — 음악을 틀어주세요.</p>
+        <button id="tabFallback" class="text-button" type="button">현재 탭만 사용</button>
+      </section>
+
+      <section class="controls" aria-label="움직임 설정">
+        <div class="control-heading">
+          <h2>MOTION MIXER</h2>
+          <span id="intensityName">BOUNCE</span>
+        </div>
+
+        <label class="slider-row">
+          <span><b>강도</b><output id="intensityValue">42</output></span>
+          <input id="intensity" type="range" min="1" max="100" value="42">
+          <small>미세 진동</small><small>화면 이탈</small>
+        </label>
+
+        <label class="slider-row">
+          <span><b>감도</b><output id="sensitivityValue">55</output></span>
+          <input id="sensitivity" type="range" min="1" max="100" value="55">
+          <small>둔감</small><small>민감</small>
+        </label>
+
+        <label class="slider-row">
+          <span><b>박자 점프</b><output id="beatBoostValue">70</output></span>
+          <input id="beatBoost" type="range" min="0" max="100" value="70">
+          <small>절제</small><small>격렬</small>
+        </label>
+
+        <div class="switch-row">
+          <label class="switch-label" for="driftEnabled">
+            <span><b>RIGHT DRIFT</b><small>오른쪽 이동 후 왼쪽 재등장</small></span>
+            <input id="driftEnabled" type="checkbox">
+            <i aria-hidden="true"></i>
+          </label>
+          <label class="switch-label" for="restoreOnStop">
+            <span><b>SAFE RETURN</b><small>중지 시 원래 위치로 복귀</small></span>
+            <input id="restoreOnStop" type="checkbox" checked>
+            <i aria-hidden="true"></i>
+          </label>
+        </div>
+      </section>
+
+      <footer>
+        전체 사운드는 공유 창에서 <b>화면</b>과 <b>오디오 공유</b>를 선택하세요.
+      </footer>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

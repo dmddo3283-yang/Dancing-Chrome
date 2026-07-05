@@ -65,7 +65,8 @@ export class MotionEngine {
   }
 
   jumpOnBeat(profile, activity) {
-    const radius = profile.jumpRadius * (0.35 + activity * 0.9);
+    const beatScale = 0.25 + this.settings.beatBoost / 100;
+    const radius = profile.jumpRadius * beatScale * (0.35 + activity * 0.9);
     const x = this.original.left + signed(this.random) * radius;
     const y = this.original.top + signed(this.random) * radius * 0.56;
 
