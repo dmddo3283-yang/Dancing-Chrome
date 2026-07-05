@@ -43,9 +43,6 @@ async function handleMessage(message) {
       await chrome.storage.local.set({ settings });
       return { ok: true, settings };
 
-    case Message.REQUEST_DESKTOP_CAPTURE:
-      return requestDesktopCapture(message);
-
     case Message.START_CAPTURE:
       return start(message);
 
@@ -99,45 +96,6 @@ async function start(message) {
   });
 
   return { ok: true, state };
-}
-
-async function requestDesktopCapture(message) {
-  state = { enabled: false, status: "selecting", source: "desktop", error: null, level: 0 };
-  const selection = await chooseDesktopMedia();
-
-  if (!selection.streamId) {
-    state = { enabled: false, status: "idle", source: null, error: null, level: 0 };
-    return { ok: false, cancelled: true, error: "오디오 공유 선택이 취소되었습니다." };
-  }
-  if (!selection.canRequestAudioTrack) {
-    state = {
-      enabled: false,
-      status: "error",
-      source: null,
-      error: "선택한 대상의 오디오가 공유되지 않았습니다.",
-      level: 0
-    };
-    return { ok: false, error: state.error };
-  }
-
-  return start({
-    ...message,
-    type: Message.START_CAPTURE,
-    streamId: selection.streamId,
-    source: "desktop"
-  });
-}
-
-function chooseDesktopMedia() {
-  return new Promise((resolve) => {
-    chrome.desktopCapture.chooseDesktopMedia(
-      ["screen", "tab", "window", "audio"],
-      (streamId, options = {}) => resolve({
-        streamId,
-        canRequestAudioTrack: Boolean(options.canRequestAudioTrack)
-      })
-    );
-  });
 }
 
 async function stop({ restore = false, notifyOffscreen = false, error = null } = {}) {

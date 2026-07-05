@@ -31,13 +31,18 @@ elements.powerButton.addEventListener("click", async () => {
 
   setBusy("공유할 화면과 오디오를 선택하세요…");
   const browserWindow = await chrome.windows.getCurrent();
-  const response = await send({
-    type: Message.REQUEST_DESKTOP_CAPTURE,
-    windowId: browserWindow.id,
+  await send({
+    type: Message.SAVE_SETTINGS,
     settings: readSettings()
   });
-  showResponse(response);
-  await refresh();
+  await chrome.windows.create({
+    url: chrome.runtime.getURL(`src/capture/capture.html?windowId=${browserWindow.id}`),
+    type: "popup",
+    width: 440,
+    height: 300,
+    focused: true
+  });
+  window.close();
 });
 
 elements.tabFallback.addEventListener("click", async () => {
