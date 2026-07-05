@@ -83,14 +83,16 @@ export class MotionEngine {
   }
 
   advanceDrift(profile, activity) {
+    if (this.anchor.x > this.screenRight + 24) {
+      this.anchor.x = this.screenLeft - this.bounds.width - 24;
+      return;
+    }
+
     const outsideRight = this.anchor.x + this.bounds.width > this.screenRight;
     const outsideLeft = this.anchor.x < this.screenLeft;
     const edgeBoost = outsideRight || outsideLeft ? 4.8 : 1;
     this.anchor.x += profile.driftSpeed * (0.45 + activity * 2.8) * edgeBoost;
 
-    if (this.anchor.x > this.screenRight + 24) {
-      this.anchor.x = this.screenLeft - this.bounds.width - 24;
-    }
   }
 
   advanceEscape(profile, activity) {
@@ -101,6 +103,11 @@ export class MotionEngine {
     const fullyOutsideLeft = this.anchor.x + this.bounds.width < this.screenLeft - 24;
 
     if (this.escape.phase === "exit" && (fullyOutsideRight || fullyOutsideLeft)) {
+      this.escape.phase = "gone";
+      return;
+    }
+
+    if (this.escape.phase === "gone") {
       this.anchor.x = this.escape.direction > 0
         ? this.screenLeft - this.bounds.width - 24
         : this.screenRight + 24;
