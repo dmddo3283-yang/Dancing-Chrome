@@ -85,8 +85,7 @@ async function requestStream(streamId, source) {
       chromeMediaSourceId: streamId
     }
   };
-  // Chrome은 데스크톱 오디오를 얻으려면 비디오 트랙도 함께 요청하도록 요구한다.
-  const video = source === "desktop" ? {
+  const video = {
     mandatory: {
       chromeMediaSource: source,
       chromeMediaSourceId: streamId,
@@ -94,12 +93,22 @@ async function requestStream(streamId, source) {
       maxWidth: 320,
       maxHeight: 240
     }
-  } : false;
+  };
 
+  // 분석에는 오디오만 필요하다. 비디오 요청은 탭 캡처에서 "Error starting tab capture"를
+  // 유발할 수 있으므로, 오디오 단독 요청을 먼저 시도한다.
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio, video });
-  } catch (error) {
-    throw new Error(describeCaptureFailure(error, source));
+    return await navigator.mediaDevices.getUserMedia({ audio, video: false });
+  } catch (audioOnlyError) {
+    // 일부 화면/시스템 오디오 소스는 비디오 트랙을 함께 요청해야 오디오를 내준다.
+    if (source !== "desktop") {
+      throw new Error(describeCaptureFailure(audioOnlyError, source));
+    }
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio, video });
+    } catch (error) {
+      throw new Error(describeCaptureFailure(error, source));
+    }
   }
 }
 
@@ -109,6 +118,9 @@ function describeCaptureFailure(error, source) {
 
   if (source === "desktop" && (name === "NotAllowedError" || name === "NotReadableError" || /permission|denied|not allowed|screen/i.test(raw))) {
     return "화면·오디오 캡처가 거부되었습니다. macOS의 경우 시스템 설정 → 개인정보 보호 및 보안 → 화면 기록에서 Chrome을 허용한 뒤 Chrome을 재시작해 주세요.";
+  }
+  if (/tab capture/i.test(raw)) {
+    return "탭 오디오 캡처를 시작하지 못했습니다. 공유 창에서 ‘오디오 공유’를 체크했는지 확인하거나, 팝업의 ‘현재 탭 사운드’ 버튼으로 다시 시도해 주세요.";
   }
   if (name === "NotFoundError") {
     return "캡처할 소스를 찾지 못했습니다. 다시 선택해 주세요.";
