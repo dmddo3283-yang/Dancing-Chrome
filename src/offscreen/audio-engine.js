@@ -52,8 +52,12 @@ async function startCapture({ streamId, source = "desktop", sensitivity = 55, pl
   analyser.smoothingTimeConstant = 0.48;
 
   const sourceNode = audioContext.createMediaStreamSource(mediaStream);
+  const outputGain = audioContext.createGain();
+  outputGain.gain.value = playThrough ? 1 : 0;
+
   sourceNode.connect(analyser);
-  if (playThrough) sourceNode.connect(audioContext.destination);
+  analyser.connect(outputGain);
+  outputGain.connect(audioContext.destination);
 
   const detector = new BeatDetector({
     sampleRate: audioContext.sampleRate,
@@ -72,8 +76,13 @@ async function startCapture({ streamId, source = "desktop", sensitivity = 55, pl
   const onEnded = () => stopCapture("오디오 공유가 종료되었습니다.");
   audioTracks[0].addEventListener("ended", onEnded, { once: true });
 
-  session = { mediaStream, audioContext, timer, onEnded };
-  await chrome.runtime.sendMessage({ type: Message.CAPTURE_STARTED, source });
+  session = { mediaStream, audioContext, timer, onEnded, outputGain };
+  await chrome.runtime.sendMessage({
+    type: Message.CAPTURE_STARTED,
+    source,
+    audioContextState: audioContext.state,
+    audioTrackState: audioTracks[0].readyState
+  });
 }
 
 async function stopCapture(reason) {
