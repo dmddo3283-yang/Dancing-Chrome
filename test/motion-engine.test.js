@@ -113,6 +113,42 @@ test("even at max intensity the window stays at least 50% on screen", () => {
   }
 });
 
+test("size pulse resizes the window but keeps it within screen bounds", () => {
+  const win = { id: 7, left: 400, top: 250, width: 700, height: 500 };
+  const engine = new MotionEngine({ random: () => 0.5 });
+  engine.start(win, { intensity: 60, beatBoost: 100, pulseEnabled: true, screen });
+
+  let resized = false;
+  for (let index = 1; index <= 80; index += 1) {
+    const operation = engine.step({ energy: 1, bass: 1, beat: index % 3 === 0 }, index * 30);
+    if (!operation) continue;
+    assert.ok(typeof operation.width === "number" && typeof operation.height === "number");
+    assert.ok(operation.width >= win.width * 0.6 - 1 && operation.width <= screen.width);
+    assert.ok(operation.height >= win.height * 0.6 - 1 && operation.height <= screen.height);
+    if (operation.width !== win.width || operation.height !== win.height) resized = true;
+  }
+  assert.ok(resized, "expected the window to change size with the music");
+});
+
+test("rotation is emitted and advances only when spin is enabled", () => {
+  const win = { id: 7, left: 400, top: 250, width: 700, height: 500 };
+
+  const off = new MotionEngine({ random: () => 0.5 });
+  off.start(win, { intensity: 60, screen });
+  const offOp = off.step({ energy: 1, bass: 1, beat: true }, 100);
+  assert.equal(offOp.rotation, undefined);
+
+  const on = new MotionEngine({ random: () => 0.5 });
+  on.start(win, { intensity: 60, rotationEnabled: true, screen });
+  const angles = [];
+  for (let index = 1; index <= 40; index += 1) {
+    const operation = on.step({ energy: 1, bass: 1, beat: index % 4 === 0 }, index * 30);
+    if (operation && operation.rotation != null) angles.push(operation.rotation);
+  }
+  assert.ok(angles.length > 0);
+  assert.ok(Math.max(...angles) > Math.min(...angles), "angle should advance while music plays");
+});
+
 test("stop operation restores original bounds", () => {
   const engine = new MotionEngine();
   engine.start(browserWindow, { intensity: 90, screen });

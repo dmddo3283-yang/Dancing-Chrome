@@ -13,6 +13,7 @@ let state = {
 let settings = normalizeSettings(DEFAULT_SETTINGS);
 let creatingOffscreen = null;
 let moving = false;
+let spinTabId = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
   const stored = await chrome.storage.local.get("settings");
@@ -107,6 +108,17 @@ async function start(message) {
     return { ok: false, error };
   }
 
+  // 페이지 회전 기능이 켜져 있고 탭 소스라면, 그 탭에 회전 콘텐츠 스크립트를 주입한다.
+  if (settings.rotationEnabled && message.source === "tab" && Number.isInteger(message.tabId)) {
+    spinTabId = message.tabId;
+    await chrome.scripting.executeScript({
+      target: { tabId: spinTabId },
+      files: ["src/content/spinner.js"]
+    }).catch(() => {
+      spinTabId = null;
+    });
+  }
+
   return { ok: true, state };
 }
 
@@ -125,6 +137,11 @@ async function sendToOffscreen(payload, attempts = 5) {
 async function stop({ restore = false, notifyOffscreen = false, error = null } = {}) {
   if (notifyOffscreen) {
     await chrome.runtime.sendMessage({ target: "offscreen", type: Message.STOP }).catch(() => {});
+  }
+
+  if (spinTabId != null) {
+    chrome.tabs.sendMessage(spinTabId, { type: Message.ROTATE_STOP }).catch(() => {});
+    spinTabId = null;
   }
 
   const restoreOperation = restore && settings.restoreOnStop ? engine.getRestoreOperation() : null;
@@ -146,13 +163,20 @@ async function stop({ restore = false, notifyOffscreen = false, error = null } =
 }
 
 async function moveWindow(frame) {
-  if (!state.enabled || moving) return;
+  if (!state.enabled) return;
   state.level = Math.max(Number(frame?.energy) || 0, Number(frame?.bass) || 0);
   const operation = engine.step(frame);
   if (!operation) return;
 
+  const { windowId, rotation, ...position } = operation;
+
+  // 페이지 회전은 창 이동과 독립적으로(이동이 밀려도) 탭에 전달한다.
+  if (rotation != null && spinTabId != null) {
+    chrome.tabs.sendMessage(spinTabId, { type: Message.ROTATE, angle: rotation }).catch(() => {});
+  }
+
+  if (moving) return;
   moving = true;
-  const { windowId, ...position } = operation;
   try {
     await chrome.windows.update(windowId, position);
   } catch (error) {

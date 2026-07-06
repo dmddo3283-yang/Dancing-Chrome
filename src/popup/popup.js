@@ -11,6 +11,8 @@ const elements = {
   sensitivity: document.querySelector("#sensitivity"),
   beatBoost: document.querySelector("#beatBoost"),
   driftEnabled: document.querySelector("#driftEnabled"),
+  pulseEnabled: document.querySelector("#pulseEnabled"),
+  rotationEnabled: document.querySelector("#rotationEnabled"),
   restoreOnStop: document.querySelector("#restoreOnStop")
 };
 
@@ -40,6 +42,7 @@ async function startTabCapture() {
       streamId,
       source: "tab",
       windowId: tab.windowId,
+      tabId: tab.id,
       settings: readSettings()
     });
     showResponse(response);
@@ -103,6 +106,8 @@ function readSettings() {
     sensitivity: elements.sensitivity.value,
     beatBoost: elements.beatBoost.value,
     driftEnabled: elements.driftEnabled.checked,
+    pulseEnabled: elements.pulseEnabled.checked,
+    rotationEnabled: elements.rotationEnabled.checked,
     restoreOnStop: elements.restoreOnStop.checked,
     screen: {
       width: window.screen.availWidth,
@@ -119,6 +124,8 @@ function writeSettings(settings = DEFAULT_SETTINGS) {
   elements.sensitivity.value = normalized.sensitivity;
   elements.beatBoost.value = normalized.beatBoost;
   elements.driftEnabled.checked = normalized.driftEnabled;
+  elements.pulseEnabled.checked = normalized.pulseEnabled;
+  elements.rotationEnabled.checked = normalized.rotationEnabled;
   elements.restoreOnStop.checked = normalized.restoreOnStop;
   syncLabels();
 }

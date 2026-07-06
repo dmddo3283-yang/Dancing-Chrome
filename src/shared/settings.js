@@ -3,6 +3,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   sensitivity: 55,
   beatBoost: 70,
   driftEnabled: false,
+  pulseEnabled: false,
+  rotationEnabled: false,
   restoreOnStop: true,
   screen: {
     width: 1440,
@@ -20,6 +22,8 @@ export function normalizeSettings(input = {}) {
     sensitivity: clampNumber(input.sensitivity, 1, 100, DEFAULT_SETTINGS.sensitivity),
     beatBoost: clampNumber(input.beatBoost, 0, 100, DEFAULT_SETTINGS.beatBoost),
     driftEnabled: Boolean(input.driftEnabled),
+    pulseEnabled: Boolean(input.pulseEnabled),
+    rotationEnabled: Boolean(input.rotationEnabled),
     restoreOnStop: input.restoreOnStop !== false,
     screen: {
       width: clampNumber(screen.width, 640, 10000, DEFAULT_SETTINGS.screen.width),
@@ -46,6 +50,8 @@ export function movementProfile(intensity) {
     dartMs: 360 - eased * 260,
     // 드리프트(화면을 가로질러 나는 궤도) 속도(px/s).
     driftSpeed: 60 + eased * 320,
+    // 페이지 회전 각속도(deg/s): 소리가 클수록 더 빨리 돈다.
+    spin: 120 + eased * 520,
     offscreenEnabled: intensity >= 88,
     // 매끈한 비행 궤적을 위해 짧은 간격으로 갱신한다(ms).
     updateInterval: intensity >= 75 ? 20 : intensity >= 35 ? 26 : 34
