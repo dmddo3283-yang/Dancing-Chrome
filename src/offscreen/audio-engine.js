@@ -3,47 +3,40 @@ import { Message } from "../shared/messages.js";
 
 let session = null;
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target !== "offscreen") return;
 
   if (message.type === Message.START_CAPTURE) {
-    startCapture(message).catch((error) => {
-      chrome.runtime.sendMessage({
-        type: Message.CAPTURE_ERROR,
-        error: error instanceof Error ? error.message : String(error)
+    startCapture(message)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => {
+        const readable = error instanceof Error ? error.message : String(error);
+        sendResponse({ ok: false, error: readable });
       });
-    });
+    return true;
   }
 
-  if (message.type === Message.STOP) stopCapture("사용자가 중지했습니다.");
+  if (message.type === Message.STOP) {
+    stopCapture("사용자가 중지했습니다.")
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
 });
 
 async function startCapture({ streamId, source = "desktop", sensitivity = 55, playThrough = false }) {
   await stopCapture();
 
-  const mediaStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      mandatory: {
-        chromeMediaSource: source,
-        chromeMediaSourceId: streamId
-      }
-    },
-    video: source === "desktop" ? {
-      mandatory: {
-        chromeMediaSource: source,
-        chromeMediaSourceId: streamId,
-        maxFrameRate: 1,
-        maxWidth: 320,
-        maxHeight: 240
-      }
-    } : false
-  });
+  const mediaStream = await requestStream(streamId, source);
 
   const audioTracks = mediaStream.getAudioTracks();
   if (audioTracks.length === 0) {
     mediaStream.getTracks().forEach((track) => track.stop());
     throw new Error("오디오가 공유되지 않았습니다. ‘오디오 공유’를 체크해 주세요.");
   }
+
+  // 비디오 트랙은 데스크톱 오디오 캡처를 위해서만 요청하며, 분석에는 쓰지 않으므로 즉시 정지한다.
+  mediaStream.getVideoTracks().forEach((track) => track.stop());
 
   const audioContext = new AudioContext({ latencyHint: "interactive" });
   await audioContext.resume();
@@ -83,6 +76,44 @@ async function startCapture({ streamId, source = "desktop", sensitivity = 55, pl
     audioContextState: audioContext.state,
     audioTrackState: audioTracks[0].readyState
   });
+}
+
+async function requestStream(streamId, source) {
+  const audio = {
+    mandatory: {
+      chromeMediaSource: source,
+      chromeMediaSourceId: streamId
+    }
+  };
+  // Chrome은 데스크톱 오디오를 얻으려면 비디오 트랙도 함께 요청하도록 요구한다.
+  const video = source === "desktop" ? {
+    mandatory: {
+      chromeMediaSource: source,
+      chromeMediaSourceId: streamId,
+      maxFrameRate: 1,
+      maxWidth: 320,
+      maxHeight: 240
+    }
+  } : false;
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio, video });
+  } catch (error) {
+    throw new Error(describeCaptureFailure(error, source));
+  }
+}
+
+function describeCaptureFailure(error, source) {
+  const name = error?.name || "";
+  const raw = error instanceof Error ? error.message : String(error);
+
+  if (source === "desktop" && (name === "NotAllowedError" || name === "NotReadableError" || /permission|denied|not allowed|screen/i.test(raw))) {
+    return "화면·오디오 캡처가 거부되었습니다. macOS의 경우 시스템 설정 → 개인정보 보호 및 보안 → 화면 기록에서 Chrome을 허용한 뒤 Chrome을 재시작해 주세요.";
+  }
+  if (name === "NotFoundError") {
+    return "캡처할 소스를 찾지 못했습니다. 다시 선택해 주세요.";
+  }
+  return raw || "오디오 캡처를 시작하지 못했습니다.";
 }
 
 async function stopCapture(reason) {

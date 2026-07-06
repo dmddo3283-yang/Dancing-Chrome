@@ -86,7 +86,8 @@ async function start(message) {
   engine.start(browserWindow, settings);
   state = { enabled: true, status: "starting", source: message.source, error: null, level: 0 };
   await ensureOffscreenDocument();
-  await chrome.runtime.sendMessage({
+
+  const result = await sendToOffscreen({
     target: "offscreen",
     type: Message.START_CAPTURE,
     streamId: message.streamId,
@@ -95,7 +96,25 @@ async function start(message) {
     playThrough: message.source === "tab"
   });
 
+  if (!result?.ok) {
+    const error = result?.error || "오디오 캡처를 시작하지 못했습니다.";
+    await stop({ restore: true, error });
+    return { ok: false, error };
+  }
+
   return { ok: true, state };
+}
+
+// 새로 만든 오프스크린 문서의 리스너가 아직 등록되지 않았을 수 있어 짧게 재시도한다.
+async function sendToOffscreen(payload, attempts = 5) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await chrome.runtime.sendMessage(payload);
+    } catch (error) {
+      if (attempt === attempts - 1) return { ok: false, error: readableError(error) };
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+  }
 }
 
 async function stop({ restore = false, notifyOffscreen = false, error = null } = {}) {

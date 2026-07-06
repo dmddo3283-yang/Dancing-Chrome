@@ -25,3 +25,16 @@ test("audio analyser stays connected to a silent output sink", async () => {
   assert.equal(engine.includes("outputGain.connect(audioContext.destination)"), true);
   assert.equal(engine.includes("outputGain.gain.value = playThrough ? 1 : 0"), true);
 });
+
+test("capture start waits for the offscreen result before reporting success", async () => {
+  const [worker, engine] = await Promise.all([
+    readFile(new URL("../src/background/service-worker.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/offscreen/audio-engine.js", import.meta.url), "utf8")
+  ]);
+
+  // Service worker must inspect the offscreen response, not optimistically return ok.
+  assert.equal(worker.includes("if (!result?.ok)"), true);
+  // Offscreen must reply with the real getUserMedia outcome so failures surface in the UI.
+  assert.equal(engine.includes("sendResponse({ ok: true })"), true);
+  assert.equal(engine.includes("sendResponse({ ok: false, error: readable })"), true);
+});
