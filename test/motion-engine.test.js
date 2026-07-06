@@ -19,7 +19,7 @@ test("moderate motion stays fully on screen", () => {
   }
 });
 
-test("motion darts erratically across a wide range while music plays", () => {
+test("motion flies across a wide range while music plays", () => {
   let seed = 987654321;
   const random = () => {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
@@ -69,21 +69,48 @@ test("silence lets the window settle back home", () => {
   assert.ok(Math.abs(last.top - browserWindow.top) <= 2);
 });
 
-test("drift current carries the window across the screen and wraps around", () => {
+test("drift sweeps the window across the screen and stays within Chrome's bounds rule", () => {
+  const width = 200;
+  const screenWidth = 800;
   const engine = new MotionEngine({ random: () => 0.5 });
   engine.start(
-    { id: 7, left: 700, top: 100, width: 200, height: 300 },
-    { intensity: 100, driftEnabled: true, screen: { ...screen, width: 800 } }
+    { id: 7, left: 700, top: 100, width, height: 300 },
+    { intensity: 100, driftEnabled: true, screen: { ...screen, width: screenWidth } }
   );
 
   const positions = [];
-  for (let index = 1; index <= 160; index += 1) {
+  for (let index = 1; index <= 200; index += 1) {
     const operation = engine.step({ energy: 1, bass: 1, beat: false }, index * 50);
     if (operation) positions.push(operation.left);
   }
 
-  assert.ok(positions.some((left) => left > 700));
-  assert.ok(positions.some((left) => left < 0));
+  const min = Math.min(...positions);
+  const max = Math.max(...positions);
+  // 좌우로 크게 휩쓴다.
+  assert.ok(max - min > 400, `expected a wide sweep, got ${max - min}px`);
+  // 그러면서도 창이 항상 최소 50% 이상 화면 안에 남는다(가장자리에서 축당 25% 이내로만 벗어남).
+  assert.ok(min >= -width * 0.25 - 1, `left edge went too far off: ${min}`);
+  assert.ok(max <= screenWidth - width + width * 0.25 + 1, `right edge went too far off: ${max}`);
+});
+
+test("even at max intensity the window stays at least 50% on screen", () => {
+  let seed = 24680;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  const engine = new MotionEngine({ random });
+  const win = { id: 7, left: 400, top: 250, width: 700, height: 500 };
+  engine.start(win, { intensity: 100, beatBoost: 100, screen });
+
+  for (let index = 1; index <= 200; index += 1) {
+    const operation = engine.step({ energy: 1, bass: 1, beat: index % 3 === 0 }, index * 20);
+    if (!operation) continue;
+    const visibleX = Math.min(operation.left + win.width, screen.width) - Math.max(operation.left, 0);
+    const visibleY = Math.min(operation.top + win.height, screen.height) - Math.max(operation.top, 0);
+    assert.ok(visibleX >= win.width * 0.5 - 1, `only ${visibleX}px of width visible at left=${operation.left}`);
+    assert.ok(visibleY >= win.height * 0.5 - 1, `only ${visibleY}px of height visible at top=${operation.top}`);
+  }
 });
 
 test("stop operation restores original bounds", () => {

@@ -1,5 +1,9 @@
 import { movementProfile, normalizeSettings } from "../shared/settings.js";
 
+// chrome.windows.update 는 창이 화면 안에 최소 50% 이상 있어야 위치를 바꿔준다.
+// 모서리에서 두 축이 동시에 벗어나도 넉넉히 보이도록 축당 최대 이탈 비율은 25%로 둔다.
+const OFFSCREEN_FRACTION = 0.25;
+
 export class MotionEngine {
   constructor({ random = Math.random } = {}) {
     this.random = random;
@@ -22,6 +26,7 @@ export class MotionEngine {
     this.level = 0;
     this.surge = 0;
     this.driftX = 0;
+    this.driftDir = 1;
     this.nextDartAt = 0;
   }
 
@@ -63,12 +68,14 @@ export class MotionEngine {
   freeFlight(profile, dt, beat, now) {
     const heat = Math.min(1, this.level + this.surge);
     const quiet = this.level < 0.03 && this.surge < 0.03;
+    const box = this.safeBox(profile);
 
     if (quiet) {
       this.waypoint.x = this.home.x;
       this.waypoint.y = this.home.y;
     } else if (beat || now >= this.nextDartAt) {
-      this.pickWaypoint(profile);
+      this.waypoint.x = box.minX + this.random() * (box.maxX - box.minX);
+      this.waypoint.y = box.minY + this.random() * (box.maxY - box.minY);
       this.nextDartAt = now + profile.dartMs * (0.5 + this.random());
     }
 
@@ -96,7 +103,7 @@ export class MotionEngine {
     this.pos.x += this.vel.x * dt;
     this.pos.y += this.vel.y * dt;
 
-    this.bounce(profile);
+    this.bounce(box);
 
     if (quiet) {
       const homeDist = Math.hypot(this.pos.x - this.home.x, this.pos.y - this.home.y);
@@ -114,61 +121,72 @@ export class MotionEngine {
     return { windowId: this.windowId, left: Math.round(this.pos.x), top: Math.round(this.pos.y) };
   }
 
-  pickWaypoint(profile) {
-    const marginX = profile.offscreenEnabled ? this.bounds.width * 0.5 : 0;
-    const marginY = profile.offscreenEnabled ? this.bounds.height * 0.4 : 0;
-    const minX = this.screenLeft - marginX;
-    const maxX = Math.max(minX, this.screenRight - this.bounds.width + marginX);
-    const minY = this.screenTop - marginY;
-    const maxY = Math.max(minY, this.screenBottom - this.bounds.height + marginY);
-    this.waypoint.x = minX + this.random() * (maxX - minX);
-    this.waypoint.y = minY + this.random() * (maxY - minY);
-  }
-
-  bounce(profile) {
+  bounce(box) {
     const restitution = 0.82;
-    const allowX = profile.offscreenEnabled ? this.bounds.width * 0.5 : 0;
-    const allowY = profile.offscreenEnabled ? this.bounds.height * 0.4 : 0;
-    const minX = this.screenLeft - allowX;
-    const maxX = Math.max(minX, this.screenRight - this.bounds.width + allowX);
-    const minY = this.screenTop - allowY;
-    const maxY = Math.max(minY, this.screenBottom - this.bounds.height + allowY);
-
-    if (this.pos.x < minX) {
-      this.pos.x = minX;
+    if (this.pos.x < box.minX) {
+      this.pos.x = box.minX;
       this.vel.x = Math.abs(this.vel.x) * restitution;
-    } else if (this.pos.x > maxX) {
-      this.pos.x = maxX;
+    } else if (this.pos.x > box.maxX) {
+      this.pos.x = box.maxX;
       this.vel.x = -Math.abs(this.vel.x) * restitution;
     }
-    if (this.pos.y < minY) {
-      this.pos.y = minY;
+    if (this.pos.y < box.minY) {
+      this.pos.y = box.minY;
       this.vel.y = Math.abs(this.vel.y) * restitution;
-    } else if (this.pos.y > maxY) {
-      this.pos.y = maxY;
+    } else if (this.pos.y > box.maxY) {
+      this.pos.y = box.maxY;
       this.vel.y = -Math.abs(this.vel.y) * restitution;
     }
   }
 
-  // 드리프트: 화면을 가로질러 날아가며 위아래로 굽이치다, 완전히 사라지면 반대편에서 다시 날아 들어온다.
+  // 드리프트: 화면을 가로질러 좌우로 크게 날아다니며 위아래로 굽이친다(가장자리에서 방향 반전).
   driftFlight(profile, dt) {
-    this.driftX += profile.driftSpeed * (0.45 + this.level) * dt;
+    const box = this.safeBox(profile);
+    this.driftX += this.driftDir * profile.driftSpeed * (0.45 + this.level) * dt;
     this.swim += profile.swimSpeed * 0.4 * (0.4 + this.level) * dt;
 
     this.pos.x = this.home.x + this.driftX;
     this.pos.y = this.home.y + Math.sin(this.swim) * profile.reach * 0.4 * (0.3 + this.level);
 
-    const lap = this.settings.screen.width + this.bounds.width;
-    if (this.pos.x > this.screenRight) {
-      this.pos.x -= lap;
-      this.driftX -= lap;
-    } else if (this.pos.x + this.bounds.width < this.screenLeft) {
-      this.pos.x += lap;
-      this.driftX += lap;
+    if (this.pos.x < box.minX) {
+      this.pos.x = box.minX;
+      this.driftX = box.minX - this.home.x;
+      this.driftDir = 1;
+    } else if (this.pos.x > box.maxX) {
+      this.pos.x = box.maxX;
+      this.driftX = box.maxX - this.home.x;
+      this.driftDir = -1;
     }
-    this.pos.y = clamp(this.pos.y, this.screenTop, Math.max(this.screenTop, this.screenBottom - this.bounds.height));
+    this.pos.y = clamp(this.pos.y, box.minY, box.maxY);
 
     return { windowId: this.windowId, left: Math.round(this.pos.x), top: Math.round(this.pos.y) };
+  }
+
+  // 창이 항상 화면 안에 충분히 남도록 허용 이동 범위를 계산한다.
+  safeBox(profile) {
+    const offX = profile.offscreenEnabled ? this.bounds.width * OFFSCREEN_FRACTION : 0;
+    const offY = profile.offscreenEnabled ? this.bounds.height * OFFSCREEN_FRACTION : 0;
+    const minX = this.screenLeft - offX;
+    const maxX = Math.max(minX, this.screenRight - this.bounds.width + offX);
+    const minY = this.screenTop - offY;
+    const maxY = Math.max(minY, this.screenBottom - this.bounds.height + offY);
+    return { minX, maxX, minY, maxY };
+  }
+
+  // chrome.windows.update 가 경계 오류를 낸 뒤, 다음 프레임이 확실히 유효하도록 창을 화면 안으로 당긴다.
+  pullInside() {
+    if (!this.pos || !this.settings || !this.bounds) return;
+    const maxX = Math.max(this.screenLeft, this.screenRight - this.bounds.width);
+    const maxY = Math.max(this.screenTop, this.screenBottom - this.bounds.height);
+    this.pos.x = clamp(this.pos.x, this.screenLeft, maxX);
+    this.pos.y = clamp(this.pos.y, this.screenTop, maxY);
+    if (this.vel) {
+      this.vel.x = 0;
+      this.vel.y = 0;
+    }
+    if (this.home) {
+      this.driftX = clamp(this.driftX, this.screenLeft - this.home.x, maxX - this.home.x);
+    }
   }
 
   getRestoreOperation() {
@@ -190,6 +208,7 @@ export class MotionEngine {
     this.level = 0;
     this.surge = 0;
     this.driftX = 0;
+    this.driftDir = 1;
     this.nextDartAt = 0;
   }
 

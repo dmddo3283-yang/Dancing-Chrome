@@ -156,7 +156,13 @@ async function moveWindow(frame) {
   try {
     await chrome.windows.update(windowId, position);
   } catch (error) {
-    await stop({ restore: false, error: readableError(error) });
+    const message = readableError(error);
+    if (/bounds|visible|screen space/i.test(message)) {
+      // 화면 경계를 벗어난 위치라 거부됐을 뿐이므로, 세션을 멈추지 않고 창을 안으로 당겨 다음 프레임을 이어간다.
+      engine.pullInside();
+    } else {
+      await stop({ restore: false, error: message });
+    }
   } finally {
     moving = false;
   }
