@@ -14,14 +14,14 @@ export class MotionEngine {
     this.bounds = boundsOf(browserWindow);
     this.home = { x: this.bounds.left, y: this.bounds.top };
     this.pos = { x: this.bounds.left, y: this.bounds.top };
+    this.vel = { x: 0, y: 0 };
+    this.waypoint = { x: this.bounds.left, y: this.bounds.top };
     this.settings = normalizeSettings(settings);
     this.lastUpdateAt = 0;
     this.swim = 0;
     this.level = 0;
     this.surge = 0;
     this.driftX = 0;
-    this.dirX = 0;
-    this.dirY = 0;
     this.nextDartAt = 0;
   }
 
@@ -45,87 +45,130 @@ export class MotionEngine {
     const beat = Boolean(frame?.beat);
     const activity = Math.max(energy, bass * 0.85);
 
-    // 소리에 즉각 반응하도록 빠르게 따라간다(=더 정신없이).
     this.level = approach(this.level, activity, 6, dt);
-
     if (beat) {
       const kick = 0.45 + this.settings.beatBoost / 100 * 0.6;
       this.surge = Math.min(1.6, this.surge + kick);
     }
-    this.surge = approach(this.surge, 0, 3.4, dt);
+    this.surge = approach(this.surge, 0, 3.2, dt);
 
-    const heat = Math.min(1, this.level + this.surge);
-    const settled = this.level < 0.02 && this.surge < 0.02 && !this.settings.driftEnabled;
-    if (settled && Math.abs(this.pos.x - this.home.x) < 1 && Math.abs(this.pos.y - this.home.y) < 1) {
-      return null;
+    if (this.settings.driftEnabled) {
+      return this.driftFlight(profile, dt);
     }
 
-    const amp = profile.reach * (this.level * 0.9 + this.surge * 0.7);
+    return this.freeFlight(profile, dt, beat, now);
+  }
 
-    // 비트마다, 그리고 짧은 간격마다 엉뚱한 방향으로 홱 돌진한다.
-    if (beat || now >= this.nextDartAt) {
-      this.dirX = signed(this.random);
-      this.dirY = signed(this.random);
+  // 관성을 가지고 목표점을 향해 날아가되 지나쳐 휘어지고, 벽에 부딪히면 튕겨 나가며 화면을 돌아다닌다.
+  freeFlight(profile, dt, beat, now) {
+    const heat = Math.min(1, this.level + this.surge);
+    const quiet = this.level < 0.03 && this.surge < 0.03;
+
+    if (quiet) {
+      this.waypoint.x = this.home.x;
+      this.waypoint.y = this.home.y;
+    } else if (beat || now >= this.nextDartAt) {
+      this.pickWaypoint(profile);
       this.nextDartAt = now + profile.dartMs * (0.5 + this.random());
     }
 
-    // 서로 안 맞는 여러 주파수를 겹쳐 난조(chaotic) 궤적을 만든다.
-    this.swim += profile.swimSpeed * (0.7 + heat) * dt;
-    const wobbleX = 0.6 * Math.sin(this.swim) + 0.3 * Math.sin(this.swim * 2.7 + 1.1) + 0.2 * Math.sin(this.swim * 5.3);
-    const wobbleY = 0.6 * Math.cos(this.swim * 1.3 + 0.5) + 0.3 * Math.sin(this.swim * 3.9 + 2.0) + 0.2 * Math.cos(this.swim * 6.1);
+    // 목표점으로 향하는 가속 + 속도에 수직인 소용돌이 성분(휘어지는 비행).
+    const swirl = profile.swimSpeed * (0.3 + heat);
+    const ax = (this.waypoint.x - this.pos.x) * profile.follow - this.vel.y * swirl;
+    const ay = (this.waypoint.y - this.pos.y) * profile.follow + this.vel.x * swirl;
+    this.vel.x += ax * dt;
+    this.vel.y += ay * dt;
 
-    if (this.settings.driftEnabled) {
-      this.driftX += profile.driftSpeed * (0.35 + this.level) * dt;
+    // 항력: 날 때는 약하게(관성 유지), 조용할 때는 강하게(제자리로 착지).
+    const drag = quiet ? 6 : 0.9;
+    this.vel.x -= this.vel.x * drag * dt;
+    this.vel.y -= this.vel.y * drag * dt;
+
+    // 소리가 나는 동안은 항상 시원하게, 클수록 더 빠르게 난다.
+    const maxSpeed = profile.reach * 7 * (0.4 + heat);
+    const speed = Math.hypot(this.vel.x, this.vel.y);
+    if (speed > maxSpeed && speed > 0) {
+      const scale = maxSpeed / speed;
+      this.vel.x *= scale;
+      this.vel.y *= scale;
     }
 
-    const targetX = this.home.x + this.driftX + this.dirX * amp + wobbleX * amp * 0.6;
-    const targetY = this.home.y + this.dirY * amp * 0.85 + wobbleY * amp * 0.6;
+    this.pos.x += this.vel.x * dt;
+    this.pos.y += this.vel.y * dt;
 
-    // 빠르게 홱홱 따라붙는다(부드럽게 미끄러지지 않는다).
-    this.pos.x = approach(this.pos.x, targetX, profile.follow, dt);
-    this.pos.y = approach(this.pos.y, targetY, profile.follow, dt);
+    this.bounce(profile);
 
-    // 매 프레임 부들부들 떨리는 잔진동을 얹는다.
-    const jitter = profile.jitter * heat;
-    this.pos.x += signed(this.random) * jitter;
-    this.pos.y += signed(this.random) * jitter;
+    if (quiet) {
+      const homeDist = Math.hypot(this.pos.x - this.home.x, this.pos.y - this.home.y);
+      if (homeDist < 4 && Math.hypot(this.vel.x, this.vel.y) < 60) {
+        const wasHome = Math.round(this.pos.x) === Math.round(this.home.x) &&
+          Math.round(this.pos.y) === Math.round(this.home.y);
+        this.pos.x = this.home.x;
+        this.pos.y = this.home.y;
+        this.vel.x = 0;
+        this.vel.y = 0;
+        if (wasHome) return null;
+      }
+    }
 
-    this.confine(profile);
-
-    return {
-      windowId: this.windowId,
-      left: Math.round(this.pos.x),
-      top: Math.round(this.pos.y)
-    };
+    return { windowId: this.windowId, left: Math.round(this.pos.x), top: Math.round(this.pos.y) };
   }
 
-  confine(profile) {
-    // 드리프트 사용 시: 오른쪽 밖으로 완전히 나가면 왼쪽 밖에서 다시 튀어 들어온다.
-    if (this.settings.driftEnabled) {
-      const lap = this.settings.screen.width + this.bounds.width;
-      if (this.pos.x > this.screenRight) {
-        this.pos.x -= lap;
-        this.driftX -= lap;
-      } else if (this.pos.x + this.bounds.width < this.screenLeft) {
-        this.pos.x += lap;
-        this.driftX += lap;
-      }
-      this.pos.y = clamp(this.pos.y, this.screenTop, Math.max(this.screenTop, this.screenBottom - this.bounds.height));
-      return;
-    }
+  pickWaypoint(profile) {
+    const marginX = profile.offscreenEnabled ? this.bounds.width * 0.5 : 0;
+    const marginY = profile.offscreenEnabled ? this.bounds.height * 0.4 : 0;
+    const minX = this.screenLeft - marginX;
+    const maxX = Math.max(minX, this.screenRight - this.bounds.width + marginX);
+    const minY = this.screenTop - marginY;
+    const maxY = Math.max(minY, this.screenBottom - this.bounds.height + marginY);
+    this.waypoint.x = minX + this.random() * (maxX - minX);
+    this.waypoint.y = minY + this.random() * (maxY - minY);
+  }
 
-    const allowX = profile.offscreenEnabled ? this.bounds.width * 0.6 : 0;
+  bounce(profile) {
+    const restitution = 0.82;
+    const allowX = profile.offscreenEnabled ? this.bounds.width * 0.5 : 0;
     const allowY = profile.offscreenEnabled ? this.bounds.height * 0.4 : 0;
-    this.pos.x = clamp(
-      this.pos.x,
-      this.screenLeft - allowX,
-      Math.max(this.screenLeft - allowX, this.screenRight - this.bounds.width + allowX)
-    );
-    this.pos.y = clamp(
-      this.pos.y,
-      this.screenTop - allowY,
-      Math.max(this.screenTop - allowY, this.screenBottom - this.bounds.height + allowY)
-    );
+    const minX = this.screenLeft - allowX;
+    const maxX = Math.max(minX, this.screenRight - this.bounds.width + allowX);
+    const minY = this.screenTop - allowY;
+    const maxY = Math.max(minY, this.screenBottom - this.bounds.height + allowY);
+
+    if (this.pos.x < minX) {
+      this.pos.x = minX;
+      this.vel.x = Math.abs(this.vel.x) * restitution;
+    } else if (this.pos.x > maxX) {
+      this.pos.x = maxX;
+      this.vel.x = -Math.abs(this.vel.x) * restitution;
+    }
+    if (this.pos.y < minY) {
+      this.pos.y = minY;
+      this.vel.y = Math.abs(this.vel.y) * restitution;
+    } else if (this.pos.y > maxY) {
+      this.pos.y = maxY;
+      this.vel.y = -Math.abs(this.vel.y) * restitution;
+    }
+  }
+
+  // 드리프트: 화면을 가로질러 날아가며 위아래로 굽이치다, 완전히 사라지면 반대편에서 다시 날아 들어온다.
+  driftFlight(profile, dt) {
+    this.driftX += profile.driftSpeed * (0.45 + this.level) * dt;
+    this.swim += profile.swimSpeed * 0.4 * (0.4 + this.level) * dt;
+
+    this.pos.x = this.home.x + this.driftX;
+    this.pos.y = this.home.y + Math.sin(this.swim) * profile.reach * 0.4 * (0.3 + this.level);
+
+    const lap = this.settings.screen.width + this.bounds.width;
+    if (this.pos.x > this.screenRight) {
+      this.pos.x -= lap;
+      this.driftX -= lap;
+    } else if (this.pos.x + this.bounds.width < this.screenLeft) {
+      this.pos.x += lap;
+      this.driftX += lap;
+    }
+    this.pos.y = clamp(this.pos.y, this.screenTop, Math.max(this.screenTop, this.screenBottom - this.bounds.height));
+
+    return { windowId: this.windowId, left: Math.round(this.pos.x), top: Math.round(this.pos.y) };
   }
 
   getRestoreOperation() {
@@ -139,14 +182,14 @@ export class MotionEngine {
     this.bounds = null;
     this.home = null;
     this.pos = null;
+    this.vel = null;
+    this.waypoint = null;
     this.settings = null;
     this.lastUpdateAt = 0;
     this.swim = 0;
     this.level = 0;
     this.surge = 0;
     this.driftX = 0;
-    this.dirX = 0;
-    this.dirY = 0;
     this.nextDartAt = 0;
   }
 
@@ -179,10 +222,6 @@ function boundsOf(browserWindow) {
 // 프레임 간격(dt)에 무관하게 일정한 속도로 목표에 수렴하는 지수 감쇠 보간.
 function approach(current, target, rate, dt) {
   return current + (target - current) * (1 - Math.exp(-rate * dt));
-}
-
-function signed(random) {
-  return random() * 2 - 1;
 }
 
 function clamp(value, min, max) {
